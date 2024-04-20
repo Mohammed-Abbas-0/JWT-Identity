@@ -1,7 +1,13 @@
+﻿using JWT_Identity.Data;
+using JWT_Identity.Models;
+using JWT_Identity.Services;
+using JWT_Project.Models;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -32,6 +38,27 @@ namespace JWT_Identity
             {
                 c.SwaggerDoc("v1", new OpenApiInfo { Title = "JWT_Identity", Version = "v1" });
             });
+
+            services.AddDbContext<Context>(idx =>
+                idx.UseSqlServer(Configuration.GetConnectionString("DefaultConnection")));
+
+            services
+                .AddIdentity<AppUser, IdentityRole>()
+                //يقوم بتحديد استخدام Entity Framework Core
+                //كوسيط لتخزين بيانات المستخدمين والأدوار.
+                //كما يحدد النوع (<Context>) الذي يمثل سياق قاعدة البيانات.
+                .AddEntityFrameworkStores<Context>()
+                //هذا السطر يقوم بإضافة مزودات الرموز الافتراضية لخدمة Identity.
+                //تتولى هذه المزودات إنشاء وإدارة الرموز المستخدمة في
+                //عمليات المصادقة مثل تأكيد البريد الإلكتروني وإعادة تعيين كلمة المرور.
+
+                .AddDefaultTokenProviders();
+
+            // Process To mapped between data JWT Class => JWT prop
+            services.Configure<JWT>(Configuration.GetSection("JWT"));
+
+
+            services.AddScoped<IAuthServices,AuthServices>();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.

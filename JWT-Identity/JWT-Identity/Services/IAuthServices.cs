@@ -1,12 +1,14 @@
-﻿using System;
+﻿using JWT_Identity.Models;
+using JWT_Project.Models;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
 namespace JWT_Identity.Services
 {
-    interface IAuthServices
+    public interface IAuthServices
     {
-        //Task<Re>
+        Task<AuthModel> Register(RegisterModel register);
     }
 }
