@@ -2,6 +2,7 @@
 using JWT_Identity.Models;
 using JWT_Project.Models;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using System;
@@ -9,6 +10,7 @@ using System.Collections.Generic;
 using System.IdentityModel.Tokens.Jwt;
 using System.Linq;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -17,14 +19,117 @@ namespace JWT_Identity.Services
     public class AuthServices : IAuthServices
     {
         private readonly UserManager<AppUser> _userManager;
+        private readonly RoleManager<IdentityRole> _identityRole;
         private readonly JWT _jwt;
-        public AuthServices(UserManager<AppUser> userManager,  IOptions<JWT> jwt)
+        public AuthServices(UserManager<AppUser> userManager, RoleManager<IdentityRole> identityRole,  IOptions<JWT> jwt)
         {
             _userManager = userManager;
             _jwt = jwt.Value;
+            _identityRole = identityRole;
         }
 
+        public async Task<string> AddRoleAsync(AddRoleModel model)
+        {
+            AppUser user = await _userManager.FindByIdAsync(model.UserId);
 
+            if (await _identityRole.RoleExistsAsync(model.Role) || user is null)
+                return "Invalid user ID or Role";
+
+            if (await _userManager.IsInRoleAsync(user, model.Role))
+                return "User already assigned to this role";
+            var result = await _userManager.AddToRoleAsync(user,model.Role);
+
+            return result.Succeeded ? string.Empty : "Sonething went wrong";
+
+        }
+
+        public async Task<AuthModel> GetTokenAsync(TokenRequestModel model)
+        {
+            AuthModel authModel = new();
+            AppUser user = await _userManager.FindByEmailAsync(model.Email);
+
+            if (user is null || !await _userManager.CheckPasswordAsync(user, model.Password))
+                return new AuthModel() { Message = "Email Or Password is incorrect." };
+
+            JwtSecurityToken jwtToken = await CreateJwtToken(user);
+            IList<string> Roles = await _userManager.GetRolesAsync(user);
+
+            authModel.Token = new JwtSecurityTokenHandler().WriteToken(jwtToken);
+            authModel.Email = user.Email;
+            authModel.Username = user.UserName;
+            authModel.IsAuthenticated = true;
+
+            authModel.Roles = Roles.ToList();
+
+            if (user.RefreshTokens.Any(idx=>idx.IsActive))
+            {
+                RefreshToken activeToken =  user.RefreshTokens.FirstOrDefault(idx=>idx.IsActive);
+                authModel.RefreshToken = activeToken.Token;
+                authModel.RefreshTokenExpiration = activeToken.ExpiresOn;
+            }
+            else
+            {
+                RefreshToken refreshToken = GenerateRefreshToken();
+                authModel.RefreshToken = refreshToken.Token;
+                authModel.RefreshTokenExpiration = refreshToken.ExpiresOn;
+                user.RefreshTokens.Add(refreshToken);
+                await _userManager.UpdateAsync(user);
+            
+            }
+
+            return authModel;
+        }
+        private RefreshToken GenerateRefreshToken()
+        {
+            byte[] randomNumber = new byte[32];
+
+            using var generator = new RNGCryptoServiceProvider();
+
+            generator.GetBytes(randomNumber);
+
+            return new RefreshToken
+            {
+                Token = Convert.ToBase64String(randomNumber),
+                ExpiresOn = DateTime.UtcNow.AddMinutes(50),
+                CreatedOn = DateTime.UtcNow
+            };
+        }
+
+        public async Task<AuthModel> RefreshTokenAsync(string token)
+        {
+            AuthModel authModel = new();
+            AppUser user = await _userManager.Users.FirstOrDefaultAsync(idx => idx.RefreshTokens.Any(col => col.Token == token));
+            if (user is null)
+            {
+                authModel.Message = "Invalid Token";
+                return authModel;
+            }
+
+            RefreshToken refreshToken = user.RefreshTokens.Single(idx => idx.Token == token);
+            if (!refreshToken.IsActive)
+            {
+                authModel.Message = "Inactive Token";
+                return authModel;
+            }
+
+            refreshToken.RevokedOn = DateTime.UtcNow;
+
+            var newRefreshToken = GenerateRefreshToken();
+            user.RefreshTokens.Add(newRefreshToken);
+            await _userManager.UpdateAsync(user);
+
+            var jwtToken = await CreateJwtToken(user);
+            authModel.IsAuthenticated = true;
+            authModel.Token = new JwtSecurityTokenHandler().WriteToken(jwtToken);
+            authModel.Email = user.Email;
+            authModel.Username = user.UserName;
+            var roles = await _userManager.GetRolesAsync(user);
+            authModel.Roles = roles.ToList();
+            authModel.RefreshToken = newRefreshToken.Token;
+            authModel.RefreshTokenExpiration = newRefreshToken.ExpiresOn;
+
+            return authModel;
+        }
         public async Task<AuthModel> Register(RegisterModel register)
         {
             if(await _userManager.FindByEmailAsync(register.Email) is not null)
@@ -53,6 +158,7 @@ namespace JWT_Identity.Services
             #endregion
 
             await _userManager.AddToRoleAsync(user, "User");
+            await _userManager.AddToRoleAsync(user, "Admin");
 
             JwtSecurityToken jwtSecurityToken = await CreateJwtToken(user);
 
@@ -66,6 +172,22 @@ namespace JWT_Identity.Services
                 Username = user.UserName
             };
         }
+        public async Task<bool> RevokeTokenAsync(string token)
+        {
+            AppUser user = await _userManager.Users.FirstOrDefaultAsync(idx => idx.RefreshTokens.Any(col => col.Token == token));
+            if (user is null)
+                return false;
+
+            RefreshToken refreshToken = user.RefreshTokens.Single(idx => idx.Token == token);
+            if (!refreshToken.IsActive)
+                return false;
+
+            refreshToken.RevokedOn = DateTime.UtcNow;;
+            await _userManager.UpdateAsync(user);
+            return true;
+
+        }
+
         private async Task<JwtSecurityToken> CreateJwtToken(AppUser user)
         {
             // الحصول على المطالبات المرتبطة بالمستخدم
@@ -116,5 +238,6 @@ namespace JWT_Identity.Services
             return jwtSecurityToken;
         }
 
+       
     }
 }

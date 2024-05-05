@@ -2,6 +2,7 @@
 using JWT_Identity.Models;
 using JWT_Identity.Services;
 using JWT_Project.Models;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.HttpsPolicy;
@@ -12,10 +13,12 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace JWT_Identity
@@ -57,6 +60,27 @@ namespace JWT_Identity
             // Process To mapped between data JWT Class => JWT prop
             services.Configure<JWT>(Configuration.GetSection("JWT"));
 
+            services
+                .AddAuthentication(idx=> {
+                    idx.DefaultScheme = JwtBearerDefaults.AuthenticationScheme;
+                    idx.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+                    idx.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+                })
+                .AddJwtBearer(idx=> {
+                    idx.SaveToken = false;
+                    idx.RequireHttpsMetadata = false;
+                    idx.TokenValidationParameters = new()
+                    {
+                        ValidateLifetime = true,
+                        ValidateIssuerSigningKey = true,
+                        ValidateAudience = true,
+                        ValidateIssuer = true,
+                        ValidIssuer = Configuration["JWT:ValidIssuer"],
+                        ValidAudience = Configuration["JWT:ValidAudience"],
+                        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Configuration["JWT:Key"])),
+                        ClockSkew = TimeSpan.Zero
+                    };
+                });
 
             services.AddScoped<IAuthServices,AuthServices>();
         }
@@ -74,7 +98,7 @@ namespace JWT_Identity
             app.UseHttpsRedirection();
 
             app.UseRouting();
-
+            app.UseAuthentication();
             app.UseAuthorization();
 
             app.UseEndpoints(endpoints =>

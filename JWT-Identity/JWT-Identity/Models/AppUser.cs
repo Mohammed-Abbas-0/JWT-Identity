@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Identity;
+﻿using JWT_Project.Models;
+using Microsoft.AspNetCore.Identity;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
@@ -14,5 +15,6 @@ namespace JWT_Identity.Models
 
         [Required,MaxLength(50)]
         public string LastName { get; set; }
+        public List<RefreshToken>? RefreshTokens { get; set; }
     }
 }
